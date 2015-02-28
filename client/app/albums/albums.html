@@ -1,0 +1,10 @@
+<h2>Albums</h2>
+
+<div style="display: flex">
+  <div ng-repeat="album in albums" style="padding-right: 12px;">
+    <a ng-href="#/album/{{album._id}}"><h4>{{album.name}}</h4></a>
+    <a ng-href="#/album/{{album._id}}">
+      <img ng-attr-src="{{album.cover}}" class="img-thumbnail" width="500">
+    </a>
+  </div>
+</div>
