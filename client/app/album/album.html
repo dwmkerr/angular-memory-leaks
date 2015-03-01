@@ -1,7 +1,9 @@
-<h2>{{title}}</h2>
+<div id="albumView">
+	<h2>{{title}}</h2>
 
-<div class="picturesContainer">
-<div ng-repeat="picture in pictures track by $index" class="picture">
-  <img ng-attr-src="{{picture}}" class="img-thumbnail" width="300">
-</div>
+	<div class="picturesContainer">
+	<div ng-repeat="picture in pictures track by $index" class="picture">
+	  <aml-picture picture="picture" title="title"></aml-picture>
+	</div>
+	</div>
 </div>
