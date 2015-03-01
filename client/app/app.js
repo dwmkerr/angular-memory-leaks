@@ -1,76 +1,17 @@
 var app = angular.module('app', ['ngRoute', 'angularModalService']);
 
-app.controller('HomeController', function($scope, $q, $location, ModalService) {
+app.controller('HomeController', function($scope, $q, $location, ScenariosService) {
 
+  $scope.isActive = function (viewLocation) { 
+    return viewLocation === $location.path();
+  };
 
-    function messageBox(title, message) {
-      var deferred = $q.defer();
+  $scope.scenario1 = function() {
+    ScenariosService.scenario1();
+  };
 
-      ModalService.showModal({
-        templateUrl: "app/popup/popup.html",
-        controller: "PopupController",
-        inputs: {
-          data: {
-            title: title,
-            message: message
-          }
-        }
-        }).then(function(modal) {
-          modal.element.modal();
-          return modal.close.then(function(result) {
-            deferred.resolve();
-          });
-        });
-
-      return deferred.promise;
-    }
-
-    $scope.test2 = function() {
-      messageBox("Test 2", "This shouldn't leak BABY.");
-    };
-
-  $scope.test1 = function() {
-
-    function buildTransition(promise, url, wait) { 
-      var deferred = $q.defer();
-      
-      promise.then(function() {
-
-        $location.path(url);
-        setTimeout(function() {
-          deferred.resolve();
-        }, wait);
-
-        return deferred.promise;
-
-      });
-
-      return deferred.promise;
-    }
-
-    function transition(urls, times, timebetween) {
-      var promise = $q.when();
-
-      for(var i=0;i<times;i++) {
-        for(var j=0; j<urls.length; j++) {
-          promise = buildTransition(promise, urls[j], timebetween);
-        }
-      }
-
-      return promise;
-    }
-
-    messageBox("Test 1", "Start Recording")
-      .then(function() {
-        return transition(['/', '/albums'], 100, 100);
-      })
-      .then(function() {
-        return messageBox("Test 1", "Stop Recording");
-      })
-      .then(function() {
-        //  done.
-      });
-
+  $scope.scenario2 = function() {
+    ScenariosService.scenario2();
   };
 
 })

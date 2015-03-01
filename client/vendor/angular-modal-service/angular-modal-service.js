@@ -10,8 +10,8 @@
 
   var module = angular.module('angularModalService', []);
 
-  module.factory('ModalService', ['$document', '$compile', '$controller', '$http', '$rootScope', '$q', '$timeout', '$templateCache',
-    function($document, $compile, $controller, $http, $rootScope, $q, $timeout, $templateCache) {
+  module.factory('ModalService', ['$document', '$compile', '$controller', '$http', '$rootScope', '$q', '$templateCache',
+    function($document, $compile, $controller, $http, $rootScope, $q, $templateCache) {
 
     //  Get the body of the document, we'll add the modal to this.
     var body = $document.find('body');
@@ -87,8 +87,24 @@
               $scope: modalScope,
               close: function(result, delay) {
                 if(delay === undefined || delay === null) delay = 0;
-                $timeout(function () {
+                window.setTimeout(function() {
+                  //  Resolve the 'close' promise.
                   closeDeferred.resolve(result);
+
+                  //  We can now clean up the scope and remove the element from the DOM.
+                  modalScope.$destroy();
+                  modalElement.remove();
+                  
+                  //  Unless we null out all of these objects we seem to suffer
+                  //  from memory leaks, if anyone can explain why then I'd 
+                  //  be very interested to know.
+                  inputs.close = null;
+                  deferred = null;
+                  closeDeferred = null;
+                  modal = null;
+                  inputs = null;
+                  modalElement = null;
+                  modalScope = null;
                 }, delay);
               }
             };
@@ -112,7 +128,6 @@
             //  Create the controller, explicitly specifying the scope to use.
             var modalController = $controller(controllerName, inputs);
 
-
             //  Finally, append the modal to the dom.
             if (options.appendElement) {
               // append to custom append element
@@ -122,7 +137,7 @@
               body.append(modalElement);
             }
 
-            //  We now have a modal object.
+            //  We now have a modal object...
             var modal = {
               controller: modalController,
               scope: modalScope,
@@ -130,14 +145,7 @@
               close: closeDeferred.promise
             };
 
-            //  When close is resolved, we'll clean up the scope and element.
-            modal.close.then(function(result) {
-              //  Clean up the scope
-              modalScope.$destroy();
-              //  Remove the element from the dom.
-              modalElement.remove();
-            });
-
+            //  ...which is passed to the caller via the promise.
             deferred.resolve(modal);
 
           })
