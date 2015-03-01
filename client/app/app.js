@@ -14,6 +14,10 @@ app.controller('HomeController', function($scope, $q, $location, ScenariosServic
     ScenariosService.scenario2();
   };
 
+  $scope.scenario3 = function() {
+    ScenariosService.scenario3();
+  };
+
 })
 .config(function($routeProvider) {
   $routeProvider

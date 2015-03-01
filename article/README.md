@@ -118,21 +118,17 @@ Let's look at a different way seeing if we've got a leak, the 'Heap Allocations'
 
 {<6>}![Record Heap Allocations](/content/images/2015/02/HeapAllocations.png)
 
-#### Mystery 1: False Charts
-
-TODO documemt issue with snapshots VS memory usage graph and link to Chrome and Angular issues.
-
 When we record heap allocations we get a chart showing us spikes as we allocate memory. These spikes are initially blue (meaning Chrome is using the memory), then change to grey once the memory is freed. If we see spikes or sections of spikes that remain blue, we may have a problem.
 
 Try this, go to the Ablums app and start recording. Click on the 'India' album, then go back to the home page. You should see a chart like this:
 
-{<8>}![Heap Allocations Example 1](/content/images/2015/03/HeapAllocationsEx1.png)
+{<7>}![Heap Allocations Example 1](/content/images/2015/03/HeapAllocationsEx1.png)
 
 So we start recording and nothing is being allocated. Then we click on the 'India' album (point 1) and we get a few spikes, as chrome allocates memory needed for the content in the new page. Then we click back on the home page (point 2). Some of the memory used in the India album is released (it looks like about half). One spike of memory used for the home page is still in use (what we'd expect) and another spike or two seem to be freed. These other spikes might be memory used for the actual transition, for example in logic in the router.
 
 So this looks like we may have a problem in the album page. In fact, we can drag a selection box around those first three spikes and see what is *still* in memory (i.e. what might be a potential leak) in the view below:
 
-{<10>}![Heap Allocations Example 2](/content/images/2015/03/HeapAllocationsEx2.png)
+{<8>}![Heap Allocations Example 2](/content/images/2015/03/HeapAllocationsEx2.png)
 
 Dissecting this view we have:
 
@@ -151,7 +147,7 @@ This is good! It means this is probably not a leak. When I first visit the album
 
 So if we have the albums page in a cache, in theory the next time we visit the page and then return to the home page, we should free a lot more of the memory (because the *new* memory we allocate will be just for the page itself, not the cache which is already set up). Let's try it. We'll record going to the album page, back to the homepage, then the album page and back again:
 
-{<12>}![Heap Allocations Example 3](/content/images/2015/03/HeapAllocationsEx3.png)
+{<9>}![Heap Allocations Example 3](/content/images/2015/03/HeapAllocationsEx3.png)
 
 This is looking good.
 
@@ -167,11 +163,11 @@ The heap allocations chart is exceptionally useful in identifying memory leaks. 
 
 One thing we noticed from this brief analyse was that the initial result was slightly misleading (at first). With the heap allocations view repeated operations can help you identify trends. In the Albums applications I've actually set up part of the app to run repeated operations, so we can try to consistently test scenarions. The 'scenarios' menu lets us run them. Let's try running scenario 1.
 
-{<14>}![Scenario 1](/content/images/2015/03/Scenario1.png)
+{<10>}![Scenario 1](/content/images/2015/03/Scenario1.png)
 
 This scenario will navigate from `/` (the home page) to `/nowhere` ten times. `/nowhere` isn't matched by the router so takes us back to the home page. This has the effect of reloading the home page 20 times (just reloading doesn't work, the router is smart enough to realise we're staying on the same page).
 
-{<17>}![Scenario 1 Heap Allocations](/content/images/2015/03/Scneario1HeapAllocations.png)
+{<11>}![Scenario 1 Heap Allocations](/content/images/2015/03/Scneario1HeapAllocations.png)
 
 While you are recording the chart you can see peaks go from blue to grey as memory is freed. Let's see what we've got.
 
@@ -182,6 +178,166 @@ While you are recording the chart you can see peaks go from blue to grey as memo
 
 Altogether this a very healthy looking scenario. The huge majority of what we allocate is freed, as we would hope. Small amounts of memory stay in use (mostly used under the hood by Chrome) and a small amount of memory after the 11th reload is not freed (a quick look suggests a timing issue, definitely something we'd want to investigate further in a real-world app). Our allocations are in the 50 KB to 100 KB range and we're looking good.
 
-Before we say goodbye to the Heap Allocations view (for now) let's do the same for Scenario 3 (moving from the home page to the top rated page 10 times).
+Before we say goodbye to the Heap Allocations view (for now) let's do the same for Scenario 2 (moving from the home page to the top rated page 10 times).
 
-{<19>}![TODO]()
+{<12>}![TODO](/content/images/2015/03/Scenario2HeapAllocations.png)
+
+We are not going to analyse this issue (yet!) but this is an example of a much less healthy chart. In this chart we seem to be allocating memory for each page view and not releasing it. This kind of chart definitely indicates that there could be problems.
+
+So we've seen the Heap Allocations view, which is a bit more sophisticated than the memory usage graph. Let's look at the last way to analyse memory leaks - snapshots.
+
+#### Method 3: Heap Snapshots
+
+The final method of identifying memory leaks is the most controlled. We will take snapshots at specific points in time and analyse the differences between them. To take a snapshot, we go to the Profiles view and choose 'Take Heap Snapshot':
+
+{<13>}![Take Heap Snapshot](/content/images/2015/03/TakeHeapSnapshot.png)
+
+When we take a heap snapshot Chrome simply records the details of all memory allocated.
+
+> Remember: Taking a Snapshot **always** runs garbage collection first.
+
+A heap snapshot shows you exactly the same kind of data you get in the Heap Allocations view, except that you are seeing ALL memory int use, not just objects which were allocated and are still alive:
+
+{<14>}![A Heap Snapshot](/content/images/2015/03/HeapSnapshot1.png)
+
+This view is very complete but not necessarily very useful. There's some extra ways to see the data (if you change from 'Summary' to another view or change 'All Objects' but we'll see that later).
+
+Staying on topic, we'll not yet look in detail at what the data is that we are seeing, we'll first look into identifying whether there are memory leaks - then we'll look into tracking them down.
+
+Indivdiual snapshots are not so helpful for checking for leaks, but what is very helpful is the ability to compare memory used between snapshots.
+
+Let's take some snapshots, try this:
+
+1. Open the app.
+2. Navigate to the top rated page (caches should now be set up).
+3. Navigate to the home page. Take a snapshot.
+4. Navigate to the top rated page. Take a snapshot.
+5. Navigate to the home page. Take a snapshot.
+
+Now we can do something really cool. Select snapshot 3, and choose to view data allocated between snapshot 1 and 2. This means we're seeing data allocated for the top rated page, which is *still* in use when we go back to the home page, i.e. probably leaked.
+
+{<15>}![Snapshot Comparison](/content/images/2015/03/SnapshotComparison.png)
+
+So what are we seeing now?
+
+1. We have three snapshots. The size of each one is shown. *Sometimes* the very first one seems overly high. See Mystery 2. We have selected the 3rd snapshot and are therefore only able to see data still present in this snapshot.
+2. We are chosing to show only objects allocated between Snapshot 1 and 2, i.e. objects allocated to present the page. But we're **in** snapshot 3, so we're seeing those objects which were allocated and are still present.
+3. Objects allocated are looking suspicious - we've got DOM elements. This doesn't look good!
+
+This is the best way to identify memory leaks. So now that we've seen how to identify whether we have memory leaks, or at least that we have a potential problem to analyse we can move onto step 2 - Analysing Memory Leaks.
+
+## Analysing Memory Leaks
+
+If we think we have a memory leak, we need to be able to look at the heap data and see what's going on. Whether we are seeing heap data from a selection of allocations from the Heap Allocations view or from the Heap Snapshots, we see the same kind of information:
+
+{<16>}![Heap Data](/content/images/2015/03/HeapData.png)
+
+Column-by-column, we have:
+
+**Constructor**
+
+This is the type of object we have. Some of these objects we can see are JavaScript classes (constructed with a `new` call to a function), such as `Scope`. As well as our own classes, we have some special classes of data:
+
+* (compiled code): Represents JavaScript code compiled by Chrome. Consider this internal - we have no control over it.
+* (array): Internally used array object. Again, internal.
+* Array: A JavaScript array. Often we have a *lot* of data in arrays.
+* Object: A plain old JavaScript object.
+* (closure): A closure.
+* system / Context: The underlying data require to call a function, for example the actual data used by a closure.
+* system: Internally used data.
+
+There are also plenty of objects that are created by Chrome, such as `HTMLDivElement`, which is a wrapper around the internally used DOM object.
+
+Let's dissect some of these objects in detail. Running scenario 3 allocates some data and puts it on the `window` object. This is really trivial data but shows a lot. You can use the Heap Allocations or Heap Snapshots to see the data. I've taken three snapshots (once when before pressing OK, once after the data is allocated, and the final one when the last modal is closed):
+
+{<17>}![Heap Data Analysis Part 1](/content/images/2015/03/HeapDataAnalysis2.png)
+
+This data has come from the code below:
+
+```javascript
+//  Create a class which will hold heap data. Makes it easier 
+//  to find the data in Chrome.
+function HeapData() {}
+
+//  Create a heap data object.
+var heapData = new HeapData();
+
+//  Create a function that multiplies two numbers.
+function multiply(a, b) {
+  return a * b;
+}
+
+//  Create a 'multiply by' function, which curries the above
+//  to generate a function which multiplies by a constant. This
+//  will involve closures. 
+var multiplyBy = function(a) {
+  return function(b) {
+    return multiply(a, b); 
+  }
+};
+
+//  Add some data to our heap data object.
+heapData.fry = "Philip J. Fry";
+heapData.zoidberb = "John " + "Zoidberg";
+heapData.character = {
+  firstName: "Amy",
+  secondName: "Wong"
+};
+heapData.double = multiplyBy(2);
+heapData.multiplyBy100 = multiplyBy(100);
+heapData.doubledNumber = heapData.double(18);
+heapData.multipliedNumber = heapData.multiplyBy100(15);
+heapData.div = document.createElement("div");
+
+//  Put the heap data on the window, it is now pinned to a GC root.
+window.heapData = heapData;
+```
+
+We've got a little bit of everything here, some code, some closures, some objects and a DOM element.
+
+As we've put most of this data on the `heapData` object, which is an instance of `HeapData` we can easily find the object:
+
+{<18>}![Heap Data Analysis 3](/content/images/2015/03/HeapDataAnalysis3.png)
+
+So we can see the `HeapData` constructor, expanding it we see an *instance* of `HeapData`. The `@420269` is a unique ID assigned by Chrome. If we have lots of heap data objects, we can use this to distinguish between them when we're looking at other parts of the snapshot. What else do we see?
+
+1. **Distance**. How far the instance is from a GC Root. A GC root is anything that can 'pin' objects, for example the `window` object which holds globals. If put something on `window` it will never be freed, this is what makes it a GC root. Our distance is 2 as we have `HeapData` (constructor) to `heapData` (instance) to `window`.
+2. **Objects count**. Only valid for the top level nodes, this shows us how many objects of the specified type we have. We have 1 `HeapData` object.
+3. **Shallow Size**. The size of the data that is directly allocated for the object. Compare this to *Retained Size*.
+4. **Retained Size**. The size of data this object is retaining. For example, out `heapData` instance holds a reference to an object which contains two fields `firstName` and `secondName`. Our shallow size includes enough data for the refernce, the retained size includes the full retained size of the retained object.
+
+Notice that our instance of `HeapData` is highlighted in yellow? That's a convenience from Chrome, it's showing us objects which are directly accessible from JavaScript. Our object can be accessed via `window.heapData`, therefore it's directly accessible. Other objects we've created might not be.
+
+Let's see some other data we allocated:
+
+{<19>}![Heap Data Analysis 4](/content/images/2015/03/HeapDataAnalysis4-1.png)
+
+Now we're looking at closures. We have two closures in yellow next to each other, clicking on one shows the retainer graph. What is going on here?
+
+1. Our closure is not a simple thing. It has code (of course), which takes up memory. We won't look into this in detail. It has shared function data (again, internally used and not worth looking into). We also have a reference to a `__proto__` (a function object has a prototype!). Finally, we have the context, which contains enough data to call the object. If we look in to the context we will not see much, as our function contains numbers which Chrome can simply store in the code. However, if we use references in closures we'll actually see them in the context.
+2. We also have the retainers. Our closure is referenced via a variable called `multiplyBy100`, which itself is referenced by `heapData`, which if referenced by the `window` GC root.
+3. The `multiplyBy100` varialbe is *also* dominated by the second element of an array with id `@227339`.
+
+The last thing we'll look at in this snapshot is the div element.
+
+{<20>}![Heap Data Analyis 5](/content/images/2015/03/HeapDataAnalysis5.png)
+
+We can see the div element is retained by the `div` variable in the `heapData` object. We can also see it is made up of a prototype and some native object. The native object shows no size - don't be fooled. That just means its taking up no JavaScript heap memory. It is still using memory (just in V8 engine not the JavaScript code).
+
+What's important to note here is that the element is shown in red. This means it's detached. So it exists, is referenced and cannot be garbage collected but is not in the DOM. This is not necessarily a problem, but lots of detached DOM elements is often a bad sign, especially if the number is increasing.
+
+The rest of the data you can look through yourself. You'll notice some interesting things, such as how concatenated strings work, but the important stuff we've now seen.
+
+Let's move on to analyising the first potential memory leak we discovered - the transition to the Top Rated page of the albums app.
+
+#### Analysing the leak in Scenario 1
+
+
+
+#### Mystery 1: False Charts
+
+TODO documemt issue with snapshots VS memory usage graph and link to Chrome and Angular issues.
+
+#### Mystery 2: Odd Snapshot Sizes
+
+TODO

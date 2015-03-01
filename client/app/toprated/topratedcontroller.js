@@ -1,13 +1,21 @@
-var summat = [];
-
 angular.module('app')
-.controller('TopRatedController', function($scope, $http) {
+.controller('TopRatedController', function($scope, $http, $interval) {
 
   var refresh = function() {
 
     $http.get('/api/toprated').success(function(albums) {
 
       $scope.albums = albums;
+
+    }).then(function() {
+
+      $interval(function() {
+
+        $http.get('/api/toprated').success(function(albums) {
+          $scope.albums = albums;
+        });
+
+      }, 10000);
 
     });
 
@@ -17,22 +25,24 @@ angular.module('app')
 
   refresh();
 
-  summat.push(refresh);
-
 })
-.directive('amlRefreshButton', function() {
+.directive('amlRatedAlbum', function() {
   return {
     restrict: "E",
     scope: {
-      onRefresh: "="
+      album: "="
     },
     link: function(scope, element, attr) {
-      element.on('click', function() {
-        if(scope.onRefresh) {
-          scope.onRefresh();
+      element.tooltip({
+        title: function() {
+          return "Rating is " + scope.title;
         }
-      })
+      });
     },
-    template: '<span class="glyphicon glyphicon-refresh" aria-hidden="true"></span>'
+    template: 
+      '<a ng-href="#/album/{{album._id}}"><h4>{{album.name}}</h4></a>' +
+      '   <a ng-href="#/album/{{album._id}}">' +
+      '   <img ng-attr-src="{{album.cover}}" class="img-thumbnail" width="500">' +
+      '</a>'
   };
 });

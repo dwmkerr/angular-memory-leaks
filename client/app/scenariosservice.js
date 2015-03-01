@@ -59,7 +59,9 @@ app.factory('ScenariosService', function($location, $q, ModalService) {
     return promise;
   }
 
-  var scenario1 = function() {
+  var scenariosService = {};
+
+  scenariosService.scenario1 = function() {
 
     messageBox("Scenario 1", "Reloads the home page 20 times. Start Recording then press OK.")
       .then(function() {
@@ -73,7 +75,7 @@ app.factory('ScenariosService', function($location, $q, ModalService) {
       });
   };
 
-  var scenario2 = function() {
+  scenariosService.scenario2 = function() {
 
     messageBox("Scenario 2", "Moves between the home and top rated pages ten times. Start Recording then press OK.")
       .then(function() {
@@ -87,9 +89,54 @@ app.factory('ScenariosService', function($location, $q, ModalService) {
       });
   };
 
-  return {
-    scenario1: scenario1,
-    scenario2: scenario2
-  };
+  scenariosService.scenario3 = function() {
+
+    messageBox("Scenario 3", "When you press OK some basic data will be allocated.")
+      .then(function() {
+
+    //  Create a class which will hold heap data. Makes it easier 
+    //  to find the data in Chrome.
+    function HeapData() {}
+
+    //  Create a heap data object.
+    var heapData = new HeapData();
+
+    //  Create a function that multiplies two numbers.
+    function multiply(a, b) {
+      return a * b;
+    }
+
+    //  Create a 'multiply by' function, which curries the above
+    //  to generate a function which multiplies by a constant. This
+    //  will involve closures. 
+    var multiplyBy = function(a) {
+      return function(b) {
+        return multiply(a, b); 
+      }
+    };
+
+    //  Add some data to our heap data object.
+    heapData.fry = "Philip J. Fry";
+    heapData.zoidberb = "John " + "Zoidberg";
+    heapData.character = {
+      firstName: "Amy",
+      secondName: "Wong"
+    };
+    heapData.double = multiplyBy(2);
+    heapData.multiplyBy100 = multiplyBy(100);
+    heapData.doubledNumber = heapData.double(18);
+    heapData.multipliedNumber = heapData.multiplyBy100(15);
+    heapData.div = document.createElement("div");
+
+    //  Put the heap data on the window, it is now pinned to a GC root.
+    window.heapData = heapData;
+
+        messageBox("Scenario 3", "Done.");
+
+      })
+
+  }
+
+  return scenariosService;
 
 })
