@@ -16,16 +16,15 @@ I'm using an AngularJS application to demonstrate the concepts and approaches, b
 4. [Fixing Memory Leaks](#fixingmemoryleaks)
    * Three golden rules
    * Anti-patterns to avoid
-     * Poorly Managed Event Handlers
-     * Poorly Managed Watchers
-     * Callback Functions on Services
 5. [The Future](#thefuture)
 6. [Appendices](#appendices)
-6. Mysteries
+   * Thanks
+   * Mysteries
+   * Futher Reading
 
 ## Understanding Memory Leaks
 
-If you've dealt with memory leaks before, or that patterns of memory usage we sometimes call memory leaks in memory managed applications then you can probably skip to [Identifying Memory Leaks](#identifyingmemoryleaks).
+If you've dealt with memory leaks before, or the patterns of memory usage we sometimes call memory leaks in memory managed applications, then you can probably skip to [Identifying Memory Leaks](#identifyingmemoryleaks).
 
 If not let's start with some theory.
 
@@ -42,7 +41,7 @@ void leaky()
 }
 ```
 
-`memory` will hold the address of the memory we've allocate, then we use the memory, then the function ends. `memory` goes out of scope and whatever address it held is lost, we didn't free the memory! Not only that, we've lost the address of it so can't ever free it in the future - it's *leaked*.
+`memory` will hold the address of the memory we've allocate. We use the memory, then the function ends. `memory` goes out of scope and whatever address it held is lost - but we didn't free the memory! Not only that, we've lost the address of it so can't ever free it in the future - it's *leaked*.
 
 This memory is lost to the application - we can't release it. Only terminating the process will release it back to the operating system.
     
@@ -50,7 +49,7 @@ This memory is lost to the application - we can't release it. Only terminating t
 
 So how do we get memory leaks in JavaScript applications? We don't allocate memory directly, the engine does it for us, and it cleans it up afterwards as well<sup><a href="#fn2" id="ref2">2</a></sup>.
 
-Well strictly, we don't. But if we hold on to objects longer than we need to, and that will give us similar results. Let's look at some code:
+If we hold on to objects longer than we need to, that will give us similar results. Let's look at some code:
 
 ```javascript
 function ChessManager() {
@@ -64,7 +63,7 @@ function ChessManager() {
 }
 ```
 
-Here we've got a bug - the `newGame` function doesn't clear the `ChessManagers` moves, it just throws a null reference exception. But we could use this class in our code. In theory if we keep on calling `makeMove` we'll just grow and grow the `moves` array. This is a bug leading to memory that can't be freed, even though we don't need it.
+Here we've got a bug - the `newGame` function doesn't clear the `ChessManager`'s moves, it just throws a null reference exception. But we could use this class in our code. In theory if we keep on calling `makeMove` we'll just grow and grow the `moves` array. This is a bug leading to memory that can't be freed, even though we don't need it.
 
 That's a contrived example of a JavaScript memory leak.
 
@@ -86,11 +85,11 @@ That's enough theory, let's actually start looking at identifying memory leaks i
 
 ## Identifying Memory Leaks
 
-Let's get started. I've created a sample app for showing photo albums which is leaky in parts. We'll look at different ways of analysing leaks and the pros and cons of each one. The app is at:
+I've created a sample app for showing photo albums which is leaky in parts. The app is at:
 
 [dwmkerr.github.io/angular-memory-leaks](http://dwmkerr.github.io/angular-memory-leaks/)
 
-It's a very basic app, but uses a fairly common set of components - Bootstrap, jQuery and AngularJS. We're going to take a look at how we can identify whether this app suffers from memory leaks.
+It's a very basic app with a fairly common set of components; Bootstrap, jQuery and AngularJS. We're going to take a look at how we can identify whether this app suffers from memory leaks.
 
 ### Method 1: The Wrong Way
 
@@ -110,7 +109,7 @@ Now start using your application. After you are done, stop recording. You'll see
 
 This is **almost** exactly what we need. I'll explain the almost shortly, but lets take a look at this graph.
 
-1. We see a *Used JS Heap* in blue. *Used* is important here - Chrome is telling us that there may be more heap usage than show in its actual process, but what we are seeing here is what is actually used by the page.
+1. We see a *Used JS Heap* in blue. *Used* is important here - Chrome is telling us that there may be more heap usage than shown in its actual process, but what we are seeing here is what is actually used by the page.
 2. We see documents (in this case a steady value of one document).
 3. We see DOM nodes. As I use the app the nodes increase, up until a certain point and then they drop.
 4. We see Listeners (i.e. even handlers). Again, these increase as I use the app and then drop.
@@ -119,7 +118,7 @@ So what should we be looking for in this graph? That depends on what our app is 
 
 {<3>}![Timeline Sawtooth](/content/images/2015/03/TimelineSawtooth.png)
 
-Here we see that we use more and more memory, up until the point that Chrome garbage collects, then go back to where we started. This is repeated again and again. This is a good sign - when Chrome garbage collects we go back to the same place we started, a strong indication we are not leaking much memory.
+Here we see that we use more and more memory, up until the point that Chrome garbage collects, then goes back to where we started. This is repeated again and again. This is a good sign - when Chrome garbage collects we go back to the same place we started, a strong indication we are not leaking much memory.
 
 If we are doing some work which simply needs more and more memory, and we don't release it, we would expect to see steps instead<sup><a href="#fn4" id="ref4">4</a></sup>:
 
@@ -129,11 +128,11 @@ An example of this might be an infinite scroll situation. I'm looking through a 
 
 The **dangerous** case is the one below:
 
-{<5>}![TODO](/content/images/2015/03/TimelineLeakySawtooth.png)
+{<5>}![Leaky Sawtooth](/content/images/2015/03/TimelineLeakySawtooth.png)
 
 Let's imaging we're using the application, navigating through albums, returning the the home page, looking through some more albums and so on. We keep using memory, and Chrome keeps on garbage collecting, but we never quite get back to where we started. We are trending towards increasing memory usage. This indicates we *might* be leaking memory.
 
-*Might* is not going to cut the mustard, we need to know categorically what is going on and whether we have a leak (which could eventually crash the browser with the user doing 'normal usage'). If we have Case 2, where there is an activity requiring unbounded DOM or complexity, that's a design issue, not a leak issue.
+*Might* is not going to cut the mustard, we need to know categorically what is going on and whether we have a leak.
 
 > You said this is 'almost' exactly what we need?
 
@@ -141,7 +140,7 @@ Unfortunately, you cannot always trust this graph. See Mystery 1 for the ugly de
 
 ### Method 3: Recording Heap Allocations
 
-Let's look at a different way seeing if we've got a leak, the 'Heap Allocations' view. In the developer tools, go to 'Profiles' and 'Record Heap Allocations':
+Let's look at a different way of seeing if we've got a leak, the 'Heap Allocations' view. In the developer tools, go to 'Profiles' and 'Record Heap Allocations':
 
 {<6>}![Record Heap Allocations](/content/images/2015/02/HeapAllocations.png)
 
@@ -183,12 +182,12 @@ This is looking good.
 3. We visit the India album a second time, requiring some memory almost all of which is freed.
 4. We go back to the home page. Some memory is used during the transition and to render the page, some of that is still in use (which is expected as the page is still open).
 
-The heap allocations chart is exceptionally useful in identifying memory leaks. The memory usage charts paint a broad picture, but it's this chart which has already led to insights:
+The heap allocations chart is exceptionally useful in identifying memory leaks, it has already led to some insights:
 
 1. Initial loading of pages increases our 'baseline' memory footprint due to data being added to caches (such as the AngularJS template cache).
 2. Subsequent loading of pages requires memory, but the vast majority of it is freed.
 
-One thing we noticed from this brief analyse was that the initial result was slightly misleading (at first). With the heap allocations view repeated operations can help you identify trends. In the Albums applications I've actually set up part of the app to run repeated operations, so we can try to consistently test scenarions. The 'scenarios' menu lets us run them. Let's try running scenario 1.
+One thing we noticed from this brief analysis was that the initial result was slightly misleading. With the heap allocations view repeated operations can help you identify trends. In the Albums application I've actually set up part of the app to run repeated operations, so we can try to consistently test scenarions. The 'scenarios' menu lets us run them. Let's try running scenario 1.
 
 {<10>}![Scenario 1](/content/images/2015/03/Scenario1.png)
 
@@ -207,7 +206,7 @@ Altogether this a very healthy looking scenario. The huge majority of what we al
 
 Before we say goodbye to the Heap Allocations view (for now) let's do the same for Scenario 2 (moving from the home page to the top rated page 10 times).
 
-{<12>}![TODO](/content/images/2015/03/Scenario2HeapAllocations.png)
+{<12>}![Scenario 2 Heap Allocations](/content/images/2015/03/Scenario2HeapAllocations.png)
 
 We are not going to analyse this issue (yet!) but this is an example of a much less healthy chart. In this chart we seem to be allocating memory for each page view and not releasing it. This kind of chart definitely indicates that there could be problems.
 
@@ -215,7 +214,7 @@ So we've seen the Heap Allocations view, which is a bit more sophisticated than 
 
 ### Method 4: Heap Snapshots
 
-The final method of identifying memory leaks is the most controlled. We will take snapshots at specific points in time and analyse the differences between them. To take a snapshot, we go to the Profiles view and choose 'Take Heap Snapshot':
+The final method of identifying memory leaks is the most sophisticated and finely controlled. We will take snapshots at specific points in time and analyse the differences between them. To take a snapshot, we go to the Profiles view and choose 'Take Heap Snapshot':
 
 {<13>}![Take Heap Snapshot](/content/images/2015/03/TakeHeapSnapshot.png)
 
@@ -223,7 +222,7 @@ When we take a heap snapshot Chrome simply records the details of all memory all
 
 > Remember: Taking a Snapshot **always** runs garbage collection first.
 
-A heap snapshot shows you exactly the same kind of data you get in the Heap Allocations view, except that you are seeing ALL memory int use, not just objects which were allocated and are still alive:
+A heap snapshot shows you exactly the same kind of data you get in the Heap Allocations view, except that you are seeing ALL memory in use, not just objects which were allocated and are still alive:
 
 {<14>}![A Heap Snapshot](/content/images/2015/03/HeapSnapshot1.png)
 
@@ -667,14 +666,13 @@ The Chrome documentation states that the colour coding key for elements in the h
 
 Still not had enough? Try these.
 
-1. Taming the Unicorn
-2. [Profiling Memory Performance](https://developer.chrome.com/devtools/docs/heap-profiling#basics)
-3. [Memory Analysis 101](https://developer.chrome.com/devtools/docs/memory-analysis-101)
-4. [Heap profile containment](https://developer.chrome.com/devtools/docs/heap-profiling-containment)
-5. [Dev tools tips & tricks](https://developer.chrome.com/devtools/docs/tips-and-tricks)
-6. [JavaScript Memory Profiling](https://developer.chrome.com/devtools/docs/javascript-memory-profiling)
-7. [Memory Management](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Memory_Management)
-8. 
+1. [Profiling Memory Performance](https://developer.chrome.com/devtools/docs/heap-profiling#basics)
+2. [Memory Analysis 101](https://developer.chrome.com/devtools/docs/memory-analysis-101)
+3. [Heap profile containment](https://developer.chrome.com/devtools/docs/heap-profiling-containment)
+4. [Dev tools tips & tricks](https://developer.chrome.com/devtools/docs/tips-and-tricks)
+5. [JavaScript Memory Profiling](https://developer.chrome.com/devtools/docs/javascript-memory-profiling)
+6. [Memory Management](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Memory_Management)
+7. [Taming the Unicorn](http://addyosmani.com/blog/taming-the-unicorn-easing-javascript-memory-profiling-in-devtools/)
 
 -----------------
 
