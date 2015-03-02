@@ -4,7 +4,7 @@ angular.module('app')
   function AlbumsControllerTag() {}
   $scope.__tag = new AlbumsControllerTag();
 
-  $http.get('angular-memory-leaks/api/albums').success(function(albums) {
+  $http.get('api/albums').success(function(albums) {
 
     $scope.albums = albums;
 
