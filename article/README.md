@@ -1,77 +1,104 @@
 Dealing with memory leaks in JavaScript applications can be a complex process. In this article I'm going to show you how to identify whether you have memory leaks, analyse them and ultimately resolve them.
 
-In this article I'm using an AngularJS application to demonstrate the concepts and approaches, but the majority of this material is not related to AngularJS and applies to any JavaScript application.
+I'm using an AngularJS application to demonstrate the concepts and approaches, but much of this material applies to any JavaScript application.
 
-1. What are Memory Leaks?
-2. Identifying Memory Leaks
-3. Analysing Memory Leaks
-4. Dealing with Object Graphs
-5. Anti-Patterns to avoid
+1. [Understanding Memory Leaks](#understandingmemoryleaks)
+   * What is a Memory Leak?
+   * Why is a Memory Leak Bad?
+2. [Identifying Memory Leaks](#identifyingmemoryleaks)
+   * Method 1: The Wrong Way
+   * Method 2: The Timeline
+   * Method 3: Recording Heap Allocations
+   * Method 4: Heap Snapshots
+3. [Analysing Memory Leaks](#analysingmemoryleaks)
+   * Analysing the leak in Scenario 2
+   * More on Graphs
+4. [Fixing Memory Leaks](#fixingmemoryleaks)
+   * Three golden rules
+   * Anti-patterns to avoid
+     * Poorly Managed Event Handlers
+     * Poorly Managed Watchers
+     * Callback Functions on Services
+5. [The Future](#thefuture)
+6. [Appendices](#appendices)
 6. Mysteries
 
-## What are Memory Leaks?
+## Understanding Memory Leaks
 
-Let's take a look at what a memory leak is first, so we know what we're dealing with.
+If you've dealt with memory leaks before, or that patterns of memory usage we sometimes call memory leaks in memory managed applications then you can probably skip to [Identifying Memory Leaks](#identifyingmemoryleaks).
 
-> TODO: When we allocate memory and don't release it when we are done, we have 'leaked' that memory.
+If not let's start with some theory.
 
-Basically. This is really easy to do in languages where you manage memory yourself:
+### What is a Memory Leak?
+
+A memory leak, at least in the world of unmanaged applications, is what occurs when you allocate memory and forget to free it. In pseudo-code<sup><a href="#fn1" id="ref1">1</a></sup>:
 
 ```c
-// in C
-data = malloc(todo);
-
-// in C+++
-data = new int[30];
+void leaky()
+{
+    void* memory;
+    memory = malloc(1000);
+    /* malloc just gave us some memory, use it! */
+}
 ```
 
-TODO Here I allocated `count` integers and didn't free the memory. Every time this function runs, I allocate memory and never free it, it's leaked.
+`memory` will hold the address of the memory we've allocate, then we use the memory, then the function ends. `memory` goes out of scope and whatever address it held is lost, we didn't free the memory! Not only that, we've lost the address of it so can't ever free it in the future - it's *leaked*.
 
-So how do we get memory leaks in JavaScript applications, when we don't allocate memory?
+This memory is lost to the application - we can't release it. Only terminating the process will release it back to the operating system.
+    
+> When we allocate memory and don't release it when we are done, we have 'leaked' that memory.
 
-Well strictly, we don't. Every object we create has as reference count, when we use that object, the reference count is incremented, when we are done with it, the reference count is decremented and when the count hits zero the memory it uses can be released. This is all handled for us in JavaScript (and many other languages). So strictly we don't leak memory, the JavaScript engine correctly understands we still have references to objects and therefore doesn't free them. We produce memory leak like behaviour (say that fast ten times) by keeping references to objects longer than we should. If this doesn't make sense, it should by the end of the article, as we'll engineer some.
+So how do we get memory leaks in JavaScript applications? We don't allocate memory directly, the engine does it for us, and it cleans it up afterwards as well<sup><a href="#fn2" id="ref2">2</a></sup>.
 
-I'll keep on using the term 'memory leak' in this article.
+Well strictly, we don't. But if we hold on to objects longer than we need to, and that will give us similar results. Let's look at some code:
+
+```javascript
+function ChessManager() {
+  this.moves = [];
+  this.makeMove = function(move) {
+    this.moves.push(move);
+  };
+  this.newGame = function() {
+    moves.clear();
+  };
+}
+```
+
+Here we've got a bug - the `newGame` function doesn't clear the `ChessManagers` moves, it just throws a null reference exception. But we could use this class in our code. In theory if we keep on calling `makeMove` we'll just grow and grow the `moves` array. This is a bug leading to memory that can't be freed, even though we don't need it.
+
+That's a contrived example of a JavaScript memory leak.
+
+> When we are finished with memory but don't allow the garbage collector to clean it up, that's a memory leak.
+
+At least for the purposes of this discussion. We'll see it's a very easy thing to do.
 
 ### Why is a Memory Leak bad?
 
-It might seem obvious but let's just make sure we're explicit with everything. As we a said in the initial definition, we allocate memory but don't deallocate it.
+It might seem obvious but let's just make sure we're explicit with everything. As we said in the initial definition, we allocate memory but don't deallocate it.
 
-In **some** circumstances, this is not necessarily a problem, if we don't leak too much too often, but there are circumstances where this is very serious.
+In *some* circumstances, this is not necessarily a disaster, if we don't leak too much too often, but there are circumstances where this is very serious.
 
-The sorts of problems we'll get with memorys leaks are a drop in performance, but more seriously after a while a process will simply terminate - as it tries to allocate memory and fails. Before we get to this point we'll often see extremely poor performance if the process ends up using Virtual Memory.
+Memory leaks cause performance problems, slow down applications and can lead to a process terminating. There are some times when that's really not good.
 
-#### Servers
+Servers and high performance applications shouldn't leak, especially as many should be expected to run for long periods of time. Mobile apps or apps for embedded systems will need to deal with fewer resources and will suffer if they leak. Any application an end user is expecting to use for a long time will cause a lot of frustration if it leaks.
 
-You *really* don't want to leak memory in a server application. Servers are often expected to run for long periods of time and serve many requests, if servers leak memory they will die, often quickly. In many cases servers will recover, for example if an IIS worker process dies due to a leak, IIS will recreate it, similarly for COM+ services and many other platforms. But this is still a serious problem - recreating the process can be expensive, and if you want high throughput this will be a killer.
-
-#### Embedded Applications
-
-If you've ever done development for embedded systems, you'll know that leaks here are serious. That's because they often have a lot less memory available. Many embedded systems will also be expected to run for long periods of time or process a high volume of data. I've worked with embedded systems that collect data from different components of a complicated machine and send it to a centralised server - issues on these systems lead to difficult to fix problems.
-
-#### 'Important' Applications
-
-Anything you use for a while that's important to you. It sounds dumb, but if you are using a certain tool for a long time every day and restarting it is hard or time consuming, that's a problem. If a calculator application you use once a week for two minutes leaks, it's probably not going to cause too many problems.
-
-#### Single Page Apps
-
-This is the sort of app we'll focus on. Single page apps are notoriously leaky because the browser doesn't get the opportunities to clean up memory allocated by Javascript. 'Normal' applications free most of the memory used by the Javascript environment every time we move to a new page, but modern single page apps will not get that opportunity.
+That's enough theory, let's actually start looking at identifying memory leaks in the context of an AngularJS application.
 
 ## Identifying Memory Leaks
 
 Let's get started. I've created a sample app for showing photo albums which is leaky in parts. We'll look at different ways of analysing leaks and the pros and cons of each one. The app is at:
 
-[TODO](http://todo)
+[dwmkerr.github.io/angular-memory-leaks](http://dwmkerr.github.io/angular-memory-leaks/)
 
-There's a menu on the top right that lets you run an automated set of steps, these are scenarios (some leaky, some not) we can quickly test.
+It's a very basic app, but uses a fairly common set of components - Bootstrap, jQuery and AngularJS. We're going to take a look at how we can identify whether this app suffers from memory leaks.
 
-#### The Wrong Way
+### Method 1: The Wrong Way
 
 First, just be aware that the wrong way to look for leaks is by examing the memory usage of the Chrome process. While an increasing amount of memory usage *can* indicate a leak, it is not reliable. Why?
 
 Well browsers can allocate memory and use it how they want to. A page it is rendering may no longer need as much memory as it needed before, but that doesn't mean the browser needs to release it to the OS. It may just keep it to avoid having to re-allocate it later on.
 
-#### Method 1: Memory Usage Graph
+### Method 2: The Timeline
 
 Open the Chrome developer tools. Go to 'Timeline' select 'Memory' and hit 'Record'.
 
@@ -88,21 +115,21 @@ This is **almost** exactly what we need. I'll explain the almost shortly, but le
 3. We see DOM nodes. As I use the app the nodes increase, up until a certain point and then they drop.
 4. We see Listeners (i.e. even handlers). Again, these increase as I use the app and then drop.
 
-So what should we be looking for in this graph? That depends on what our app is doing. But let's imagine the we are navigating through different photo albums in the albums app. We'll need more memory to see each album, but once we leave an album we don't need that memory any more. So we should get a healthy saw-tooth pattern:
+So what should we be looking for in this graph? That depends on what our app is doing. But let's imagine the we are navigating through different photo albums in the albums app. We'll need more memory to see each album, but once we leave an album we don't need that memory any more. So we should get a healthy saw-tooth pattern<sup><a href="#fn3" id="ref3">3</a></sup>:
 
-{<3>}![TODO]()
+{<3>}![Timeline Sawtooth](/content/images/2015/03/TimelineSawtooth.png)
 
 Here we see that we use more and more memory, up until the point that Chrome garbage collects, then go back to where we started. This is repeated again and again. This is a good sign - when Chrome garbage collects we go back to the same place we started, a strong indication we are not leaking much memory.
 
-If we are doing some work which simply needs more and more memory, and we don't release it, we would expect to see steps instead:
+If we are doing some work which simply needs more and more memory, and we don't release it, we would expect to see steps instead<sup><a href="#fn4" id="ref4">4</a></sup>:
 
-{<4>}![TODO]()
+{<4>}![Timeline Steps](/content/images/2015/03/TimelineSteps-1.png)
 
 An example of this might be an infinite scroll situation. I'm looking through a vast photo album, and when I get to the bottom of the screen I load more images automatically. The ones I've loaded are still in the DOM so cannot be released. We see no saw-tooth because there's no release of memory. However, this is not a memory leak - it's just increasing memory usage. It does mean that if we allow the user to scroll too much we may run out of resources though.
 
 The **dangerous** case is the one below:
 
-{<5>}![TODO]()
+{<5>}![TODO](/content/images/2015/03/TimelineLeakySawtooth.png)
 
 Let's imaging we're using the application, navigating through albums, returning the the home page, looking through some more albums and so on. We keep using memory, and Chrome keeps on garbage collecting, but we never quite get back to where we started. We are trending towards increasing memory usage. This indicates we *might* be leaking memory.
 
@@ -110,9 +137,9 @@ Let's imaging we're using the application, navigating through albums, returning 
 
 > You said this is 'almost' exactly what we need?
 
-Unfortunately, you cannot always trust this graph. See Mystery 1 for the ugly details. Suffice to say that what we're seeing here is an indicator only, but for more detail we need to look at Method 2.
+Unfortunately, you cannot always trust this graph. See Mystery 1 for the ugly details. Suffice to say that what we're seeing here is an indicator only, but for more detail we need to look at Method 3.
 
-#### Method 2: Recording Heap Allocations
+### Method 3: Recording Heap Allocations
 
 Let's look at a different way seeing if we've got a leak, the 'Heap Allocations' view. In the developer tools, go to 'Profiles' and 'Record Heap Allocations':
 
@@ -186,7 +213,7 @@ We are not going to analyse this issue (yet!) but this is an example of a much l
 
 So we've seen the Heap Allocations view, which is a bit more sophisticated than the memory usage graph. Let's look at the last way to analyse memory leaks - snapshots.
 
-#### Method 3: Heap Snapshots
+### Method 4: Heap Snapshots
 
 The final method of identifying memory leaks is the most controlled. We will take snapshots at specific points in time and analyse the differences between them. To take a snapshot, we go to the Profiles view and choose 'Take Heap Snapshot':
 
@@ -234,7 +261,7 @@ If we think we have a memory leak, we need to be able to look at the heap data a
 
 Column-by-column, we have:
 
-**Constructor**
+**Constructor** todo this is not consistent with what we show next (i.e the list of colums)
 
 This is the type of object we have. Some of these objects we can see are JavaScript classes (constructed with a `new` call to a function), such as `Scope`. As well as our own classes, we have some special classes of data:
 
@@ -330,7 +357,7 @@ The rest of the data you can look through yourself. You'll notice some interesti
 
 Let's move on to analyising the first potential memory leak we discovered - the transition to the Top Rated page of the albums app.
 
-#### Analysing the leak in Scenario 2
+### Analysing the leak in Scenario 2
 
 We saw that scenario 2, switching to and from the 'top rated' view seemed to leak memory. Let's use the heap snapshot comparison view to analyse this further. The steps are:
 
@@ -342,7 +369,7 @@ We saw that scenario 2, switching to and from the 'top rated' view seemed to lea
 
 We can now look at the memory allocated between 1 and 2 that is present in 3:
 
-{<22>}![Scenario 2 Snapshot 1](/content/images/2015/03/Scenario2Snapshot1.png)
+{<21>}![Scenario 2 Snapshot 1](/content/images/2015/03/Scenario2Snapshot1.png)
 
 Some things jump out immediately:
 
@@ -351,7 +378,7 @@ Some things jump out immediately:
 
 This looks like a classic leak situation. Let's start by finding the object with the largest retained size which we can make some sense of, there are some `Scope` objects near the top of the chart, let's look at those.
 
-{<24>}![Scenario 2 Part 2](/content/images/2015/03/Scenario1Part2.png)
+{<22>}![Scenario 2 Part 2](/content/images/2015/03/Scenario1Part2.png)
 
 We've got some `Scope` objects, three in fact. These objects contain the usual AngularJS fields such as `$parent`, the only field which distinguishes this scope is the `album` field. If we look at out `aml-rated-album` directive it looks like it could be the isolated scope for this directive:
 
@@ -372,17 +399,19 @@ Looking at the retainers (at **2**) we don't see much. We're retained by a `$$Ch
 
 Scopes know about their parents. They also know about their children, and siblings. If we inadvertantly pin a scope to a GC root, we **will probably leak almost all of the scopes in the page**.
 
-Why? The graph below should show why. I 'leak' a scope, and by doing so I retain all of the other scopes, because they are connecting. Having a connected graph of scopes is required for angular to work, but it means that we we are extremely susceptible to leaking a **lot** of data.
+Why? The graph below should show why. I 'leak' a scope, and by doing so I retain all of the other scopes, because they are connected. Having a connected graph of scopes is required for angular to work, but it means that we we are extremely susceptible to leaking a **lot** of data.
 
-{<27>}![TODO scope leak graph]()
+{<23>}![Scope leak graph](/content/images/2015/03/ScopeLeakGraph1.png)
+
+This graph shows `$parent` retained relationships, but don't forget scopes also know about their children and their siblings, so real graph is even more highly connected.
 
 So just grabbing a specific scope is not good enough. We need to try and be a little bit more specific. Let's try starting from an element instead. Here we take a look at a div element and its retainers:
 
-{<29>}![Scenario 2 Part 3](/content/images/2015/03/Scenario2Part3.png)
+{<24>}![Scenario 2 Part 3](/content/images/2015/03/Scenario2Part3.png)
 
 Resting the mouse over the instance of a leaked `HTMLElement` shows a bit of data about it, it's a `aml-rated-album` and it is detached. Definitely a symptom of our leak. Let's see the retainers:
 
-{<31>}![Scenario 2 Part 4](/content/images/2015/03/Scenario2Part4-1.png)
+{<25>}![Scenario 2 Part 4](/content/images/2015/03/Scenario2Part4-1.png)
 
 Ouch. This is nasty. Again, we are not seeing much that is particularly useful. We have a long graph of retainers starting with the `compileNode` function, we also have an array in a `n.fn.init` function. To cut a long story short, we're are not going to easily find the root cause here. But I will share some hints.
 
@@ -415,14 +444,14 @@ angular.module('app')
 
 Now when we run the analysis again, we can search in the snapshot for `TopRatedControllerTag`:
 
-{<33>}![Scenario 2 Part 5](/content/images/2015/03/Scenario2Part5.png)
+{<26>}![Scenario 2 Part 5](/content/images/2015/03/Scenario2Part5.png)
 
 1. We search for 'Tag', finding one instance of the `TopRatedControllerTag`.
 2. Bingo - it is retained by a Scope, with id `@534851`
 
 Let's look at this scope in more detail. Right click on it and choose 'Review in Summary View', so we can see what is retaining it:
 
-{<35>}![Scenario 2 Part 6](/content/images/2015/03/Scenario2Part6.png)
+{<27>}![Scenario 2 Part 6](/content/images/2015/03/Scenario2Part6.png)
 
 1. We can now see the root scope for the actual view.
 2. We can see the usual pattern of `$$ChildScope` and `$parent` properties, but what else have we got?
@@ -435,7 +464,7 @@ What is a context variable?
 
 So basically we have a closure which refers to a variable called `$scope`, which is the root scope of our view. We can see in detail the closure:
 
-{<36>}![Scenario 2 Part 7](/content/images/2015/03/Scenario2Part7.png)
+{<28>}![Scenario 2 Part 7](/content/images/2015/03/Scenario2Part7.png)
 
 1. `$scope` is retained by a `context` for a closure.
 2. The closure is in the `refresh` function (this is why the `context` is retained by `refresh`).
@@ -454,33 +483,53 @@ Some important takeaways:
 
 Let's talk about this a bit more.
 
-## Dealing with Object Graphs
+### Dealing with Object Graphs
 
-We saw before that a chain of retainers can pin an object, such as a scope to a GC root:
+We saw before that a chain of retainers can pin an object, such as a scope to a GC root. We also saw that AngularJS scopes are part of a highly connected graph, meaning that if we leak part of it, we probably leak it all:
 
-{<38>}![TODO]()
-
-We also saw that AngularJS scopes are part of a highly connected graph, meaning that if we leak part of it, we probably leak it all:
-
-{<40>}![TODO]()
+{<29>}![Scope Leak Graph 1](/content/images/2015/03/ScopeLeakGraph1-1.png)
 
 However, things can get worse. Remember how in an angular app you can get the scope for an element with `$(selector).scope()`? This connection between a scope an an element is maintained in the jQuery data cache. This lets us associate arbitrary data with an element. This introduces another layer of connectivity:
 
-{<42>}![TODO]()
+{<30>}![TODO](/content/images/2015/03/ScopeLeakGraph2.png)
+
+In this graph, we see the jQuery data cache entries (in grey) associating DOM elements to scopes, introducing more connectivity.
 
 We can see here an alarming increase in the side and potential complexity of the graph. We've got DOM elements in play now. The chances are that if you are reading this you are dealing with a memory leak in your app, if it's noticable enough for you to deal with it, you probably have a non-trivial graph.
 
-How can we deal with this?
+So how do we fix memory leaks? I'll show three general statements and how to use each one.
 
-Basically we have to avoid a set of anti-patterns, all of which are detailed below. There is another technique, which is to disconnect the graph. This is the last resort, but sometimes needed.
+## Fixing Memory Leaks
 
-## Anti Patterns to Avoid
+Fixing memory leaks is hard. As we have seen our problem is highly connected graphs. If we have a part of the graph we want to free for garbage collection (such as a scope and all of it's children, such as a view or directive) then we must not retain that graph of objects. This means if you have (for example) three problems that lead to retaining a graph, you have to fix **all of the problems** before the leak goes away.
 
-Most of these anti-patterns can be considered to be aspects of a simple rule:
+Let's generalise the best practices first into three rules, see patterns we should follow for each of them and then look at anti-patterns to avoid.
 
-> Long lived objects **must not** retain short lived objects.
+### Three Golden Rules
 
-In single page apps we are going to create a lot of short lived objects - scopes, views, directives and so on. We need to be able to clean these up and most of the time angular will do that for us. But it cannot if we retain these objects via long lived objects. And don't forget, when we leak, we really leak. TODO link to big graph.
+> Rule 1: Understand lifecycle
+
+If you are using a framework like AngularJS, you **must** understand the lifecycle of the objects you are dealing with. Unless you understand how the framework tries to clean up, you may make mistakes that stop it from working.
+
+> Rule 2: Be careful at the interface between short and long lived objects.
+
+Whenever you see an interface between a short and long lived object, be extra careful. For example, if you have a directive talking to a service, make sure the service cannot retain the directive through closures, callbacks or any references. Services will last for the lifetime of the application, so they are the sort of object which can inadvertantly retain short lived objects.
+
+Other long lived objects exist but may be more subtle, the interface between AngularJS and other libraries can be a risky area, if other libraries maintain long lived state.
+
+Finally, consider this. The isolated scope for a directive (for example) may inadvertantly be long lived - if it is leaked. That leads us to Rule 3.
+
+> Rule 3: Disconnect the graph.
+
+You can be defensive by manually disconnecting graphs of objects. This can aid if you have a memory leak you cannot resolve. By disconnecting the graph, the garbage collector will at least be able to attempt to clean up parts of it.
+
+AngularJS should attempt to do this for you, for example when scopes are destroyed the links to other scopes are severed. But you can also do this yourself. Disconnecting the graph is not always as simple as emptying arrays or nulling objects, it can mean nulling closures and context variables too<sup><a href="#fn5" id="ref5">5</a></sup>.
+
+The anti-patterns which follow are all violations of these rules.
+
+### Anti-Patterns to Avoid
+
+Whether or not your app is suffering from memory leaks, avoid these patterns.
 
 #### Poorly Managed Event Handlers
 
@@ -496,8 +545,6 @@ function(scope, element, attrs) {
 
 We register an event handler. We've now built a closure which will have a context, which retains the `scope`. If we don't deregister this event handler, we retain the closure, the context, the scope, and then basically everything in the universe.
 
-*Note:*: In the trivial case angular *should* handle this. It is supposed to deregister event handlers on elements it manages. In my experience this isn't always the case, although it seems cases when this doesn't happen are fewer and fewer as bugs get fixed in the framework.
-
 **The Fix**
 
 ```javascript
@@ -506,10 +553,12 @@ function(scope, element, attrs) {
     scope.selected = true;
   });
   scope.$on('$destroy', function() {
-  	element.off(); // deregister all event handlers
+    element.off(); // deregister all event handlers
   })''
 }
 ```
+
+*Note:*: Angular *should* handle this. It is supposed to deregister event handlers on elements it manages. In my experience this isn't always the case, although it seems cases when this doesn't happen are fewer and fewer as bugs get fixed in the framework. Anyway, Rule 3 - disconnect.
 
 #### Poorly Managed Watchers
 
@@ -517,7 +566,7 @@ Basically the same as above.
 
 ```javascript
 $scope.$on('someEvent', function() {
-	$scope.refresh();
+  $scope.refresh();
 })
 ```
 
@@ -527,12 +576,14 @@ Again, Angular should clean this up if you forget to, but the advice is always d
 
 ```javascript
 var cleanup = $scope.$on('someEvent', function() {
-	$scope.refresh();
+  $scope.refresh();
 });
 $scope.$on('$destroy', function() {
-	cleanup();
+  cleanup();
 })
 ```
+
+Rule 1 - know the framework and how lifecycle is handled. `$destroy` is sent to a scope specifically to allow it to be cleaned up.
 
 #### Callback Functions on Services
 
@@ -540,11 +591,11 @@ Services, or other long lived objects, should typically not take callback functi
 
 ```javascript
 NotificationService.onNameChange(function(newName) {
-	$scope.userName = newName;
+  $scope.userName = newName;
 });
 ```
 
-Now the service (a long lived object) takes a closure with a context to a shore lived object, the scope. Unless the service is written absolutely correctly, we run the risk of the service retaining the scope. Remember, services are singletons and as such the interface between services and scopes is one that requires careful management.
+Now the service (a long lived object) takes a closure with a context to a short lived object, the scope. Unless the service is written absolutely correctly, we run the risk of the service retaining the scope. Remember, services are singletons and as such the interface between services and scopes is one that requires careful management.
 
 There are two fixes I would suggest.
 
@@ -552,41 +603,43 @@ There are two fixes I would suggest.
 
 ```javascript
 NotificationService.changeName().then(function(newName) {
-	$scope.name = newName;
+  $scope.name = newName;
 });
 ```
 
-The notification service returns a promise (a short lived object) when holds the closure. If we get things wrong, we are less likely to leak the scope. Plus, promises are typically easy to work with once you've got the hang of them.
-
-See my article [Promises in AngularJS - The Definitive Guide](http://www.dwmkerr.com/promises-in-angularjs-the-definitive-guide/) if you are not sure how to use them.
+The notification service returns a promise (a short lived object) when holds the closure. If we get things wrong, we are less likely to leak the scope. Plus, promises are typically easy to work with once you've got the hang of them<sup><a href="#fn6" id="ref6">6</a></sup>.
 
 **Fix 2: For notifications, use broadcasts**
 
 ```javascript
 $scope.$on('NotificationService:ChangeName', function(data) {
-	$scope.name = data;
+  $scope.name = data;
 });
 ```
 
-Some will say to not overuse broadcasts as they can be expensive. They can, so use them judiciously. But remember as well, they're provided by the framework, typically lead to fairly loose coupling and are probably managing clean up as well or better than a hand-rolled mechanism in a service.
+Some will say to not overuse broadcasts as they can be expensive. They can, so use them judiciously. But remember, they're provided by the framework, typically lead to fairly loose coupling and are probably managing clean up as well or better than a hand-rolled mechanism in a service. Rule 2 - don't tie short lived objects to long lived objects.
 
 ## The Future
 
-There are some important things that will happen over the next few years that will direcly help with issues like this.
+That's a wrap. Hopefully this article will grow and improve with feedback from the community. To wind up, lets look at a few things that are on their way which will touch on these issues.
 
-#### Weak Maps
+### Weak Maps
 
-Finally, in ECMAScript 6 we will get a WeakMap object. This is *ideal* for something like the jQuery data cache. A weak map uses weak references (not natively supported in JavaScript). This means that we can map a DOM element to a scope in a weak map, but the map entry doesn't retain the element or scope. If the element or scope is cleaned up, the map entry is removed. This means internal structures to aid with frameworks don't need to necessarily retain object graphs.
+Finally, in ECMAScript 6 we will get a WeakMap<sup><a href="#fn7" id="ref7">7</a></sup> object. This is *ideal* for something like the jQuery data cache. A weak map uses weak references (not natively supported in JavaScript). This means that we can map a DOM element to a scope in a weak map, but the map entry doesn't retain the element or scope. If the element or scope is cleaned up, the map entry is removed. This means internal structures to aid with frameworks don't need to necessarily retain object graphs.
 
-#### AngularJS 2.0
+### AngularJS 2.0
 
-Simplications to the framework in 2.0 and usage of native features like web components mean less complex framework code and less scope for issues. Consider even the usage of classes in Angular 2.0. We don't decorate a scope object (of type `Object`) we create an instance of a class. Easier to see in the heap view.
+Simplifications to the framework in 2.0 and usage of native features like web components mean less complex framework code and less scope for issues. Consider even the usage of classes in Angular 2.0. We don't decorate a scope object (of type `Object`) we create an instance of a class. Easier to see in the heap view.
 
-#### Even Better Browsers
+### Even Better Browsers
 
 SPA frameworks are driving improvements to browsers. Frameworks like Angular lead to more SPAs. More SPAs mean we find more bugs and edge cases in browsers. Many memory leak issues in AngularJS have led to fixes in V8.
 
-#### Thanks
+## Appendices
+
+Beware any write up long enough to need appendices.
+
+### Thanks
 
 Much of my understanding here came from working with others on real-world issues. I would like to thank the following people for their advice and insights:
 
@@ -594,14 +647,41 @@ James Denning, Shaun Bohannon, Arnaud Rebts, Colin Montgommery, Jon Hamshaw, Chr
 
 There are others I have worked on with in this area, if I have forgotten to mention you please let me know.
 
-#### Mysteries
+### Mysteries
 
-#### Mystery 1: False Charts
+After a large amount of time spent investigating memory leaks, there are still some things which to me are a mystery. If anyone can shed some light, I'd be interested to know.
 
-TODO documemt issue with snapshots VS memory usage graph and link to Chrome and Angular issues.
+**Mystery 1: False Charts**
 
-#### Mystery 2: Odd Snapshot Sizes
+As mentioned earlier we cannot always trust the timeline, it is not uncommon to see the memory usage in the timeline increase, even though the size of snapshots seems to be staying constant. This may be related to AngularJS Issue [DOM Nodes Leaking](https://github.com/angular/angular.js/issues/4864).
 
-TODO
+**Mystery 2: Odd Snapshot Sizes**
 
-#### Mystery 3: Where's the colour coding documentation?
+It is not uncommon for the first snapshot to be large, and then subsequent snapshots to all be a bit smaller (even without any state changes). Why this is the case I do not know. To test, run an angular app and take some snapshots without doing anything in between. You'll normally see (for example) 9 MB, 9MB, 9MB. However, it is not uncommon to see 15 MB, 9MB, 9MB.
+
+**Mystery 3: Where's the colour coding documentation?**
+
+The Chrome documentation states that the colour coding key for elements in the heap snapshot is available in the tool. I can't find it anywhere, so had to research to find the details.
+
+### Further Reading
+
+Still not had enough? Try these.
+
+1. Taming the Unicorn
+2. [Profiling Memory Performance](https://developer.chrome.com/devtools/docs/heap-profiling#basics)
+3. [Memory Analysis 101](https://developer.chrome.com/devtools/docs/memory-analysis-101)
+4. [Heap profile containment](https://developer.chrome.com/devtools/docs/heap-profiling-containment)
+5. [Dev tools tips & tricks](https://developer.chrome.com/devtools/docs/tips-and-tricks)
+6. [JavaScript Memory Profiling](https://developer.chrome.com/devtools/docs/javascript-memory-profiling)
+7. [Memory Management](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Memory_Management)
+8. 
+
+-----------------
+
+<sup id="fn1">1. This is C actually, but the syntax isn't important, just the logic of what we're doing.<a href="#ref1">↩</a></sup>
+<sup id="fn2">2. In JavaScript as in most managed languages, the mechanism by which this happens is reference counting and garbage collection. There's a superb description at [JavaScript Memory Management](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Memory_Management).<a href="#ref2">↩</a></sup>
+<sup id="fn3">3. Try it yourself with this [fiddle for a sawtooth pattern](http://jsfiddle.net/dwmkerr/2LzxgLb4/).<a href="#ref3">↩</a></sup>
+<sup id="fn4">4. Try it yourself with this [fiddle for a 'steps' pattern](http://jsfiddle.net/dwmkerr/9dmpp5te/).<a href="#ref4">↩</a></sup>
+<sup id="fn5">5. See [this commit](https://github.com/dwmkerr/angular-modal-service/commit/79998ca98101798608bdb914aecbd44f3ccbaa7a) in my Angular Modal Service for an example of how nulling context variables (i.e. disconnecting the graph) solved a memory leak. This is a good example of how are it can be, after large amounts of analysis I still haven't discovered **why** this was needed, but it solved the problem. It may relate to Mystery 4.<a href="#ref5">↩</a></sup>
+<sup id="fn6">6. See my article [Promises in AngularJS - The Definitive Guide](http://www.dwmkerr.com/promises-in-angularjs-the-definitive-guide/) if you are not sure how to use them.<a href="#ref6">↩</a></sup>
+<sup id="fn7">7. More details at https://developer.mozilla.org/en/docs/Web/JavaScript/Reference/Global_Objects/WeakMap<a href="#ref7">↩</a></sup>
