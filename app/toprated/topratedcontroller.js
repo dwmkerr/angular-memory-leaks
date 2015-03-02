@@ -8,7 +8,7 @@ angular.module('app')
 
   var refresh = function() {
 
-    $http.get('/api/toprated').success(function(albums) {
+    $http.get('angular-memory-leaks/api/toprated').success(function(albums) {
 
       $scope.albums = albums;
 
@@ -16,7 +16,7 @@ angular.module('app')
 
       $interval(function() {
 
-        $http.get('/api/toprated').success(function(albums) {
+        $http.get('angular-memory-leaks/api/toprated').success(function(albums) {
           $scope.albums = albums;
         });
 
