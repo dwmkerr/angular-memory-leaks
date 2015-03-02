@@ -27,7 +27,7 @@ app.controller('HomeController', function($scope, $q, $location, ScenariosServic
     resolve: {
       album: function($http, $route) {
         console.log(JSON.stringify($route.current.params));
-        return $http.get('/api/album/' + $route.current.params.albumId)
+        return $http.get('api/album/' + $route.current.params.albumId)
           .then(function(response) {
             return response.data;
           });
