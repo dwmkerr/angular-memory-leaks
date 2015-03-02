@@ -22,7 +22,7 @@ app.controller('HomeController', function($scope, $q, $location, ScenariosServic
 .config(function($routeProvider) {
   $routeProvider
    .when('/album/:albumId', {
-    templateUrl: '/app/album/album.html',
+    templateUrl: 'app/album/album.html',
     controller: 'AlbumController',
     resolve: {
       album: function($http, $route) {
@@ -35,12 +35,12 @@ app.controller('HomeController', function($scope, $q, $location, ScenariosServic
     }
   })
    .when('/toprated', {
-    templateUrl: '/app/toprated/toprated.html',
+    templateUrl: 'app/toprated/toprated.html',
     controller: 'TopRatedController'
     }
   )
   .otherwise({
-    templateUrl: '/app/albums/albums.html',
+    templateUrl: 'app/albums/albums.html',
     controller: 'AlbumsController'
   });
 
