@@ -18,20 +18,16 @@ app.controller('HomeController', function($scope, $q, $location, ScenariosServic
     ScenariosService.scenario3();
   };
 
-  $scope.scenario4 = function() {
-    ScenariosService.scenario4();
-  };
-
 })
 .config(function($routeProvider) {
   $routeProvider
    .when('/album/:albumId', {
-    templateUrl: '/app/album/album.html',
+    templateUrl: 'app/album/album.html',
     controller: 'AlbumController',
     resolve: {
       album: function($http, $route) {
         console.log(JSON.stringify($route.current.params));
-        return $http.get('/api/album/' + $route.current.params.albumId)
+        return $http.get('api/album/' + $route.current.params.albumId)
           .then(function(response) {
             return response.data;
           });
@@ -39,12 +35,12 @@ app.controller('HomeController', function($scope, $q, $location, ScenariosServic
     }
   })
    .when('/toprated', {
-    templateUrl: '/app/toprated/toprated.html',
+    templateUrl: 'app/toprated/toprated.html',
     controller: 'TopRatedController'
     }
   )
   .otherwise({
-    templateUrl: '/app/albums/albums.html',
+    templateUrl: 'app/albums/albums.html',
     controller: 'AlbumsController'
   });
 

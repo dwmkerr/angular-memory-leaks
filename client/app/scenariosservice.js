@@ -94,62 +94,48 @@ app.factory('ScenariosService', function($location, $q, ModalService) {
     messageBox("Scenario 3", "When you press OK some basic data will be allocated.")
       .then(function() {
 
-      //  Create a class which will hold heap data. Makes it easier 
-      //  to find the data in Chrome.
-      function HeapData() {}
+    //  Create a class which will hold heap data. Makes it easier 
+    //  to find the data in Chrome.
+    function HeapData() {}
 
-      //  Create a heap data object.
-      var heapData = new HeapData();
+    //  Create a heap data object.
+    var heapData = new HeapData();
 
-      //  Create a function that multiplies two numbers.
-      function multiply(a, b) {
-        return a * b;
+    //  Create a function that multiplies two numbers.
+    function multiply(a, b) {
+      return a * b;
+    }
+
+    //  Create a 'multiply by' function, which curries the above
+    //  to generate a function which multiplies by a constant. This
+    //  will involve closures. 
+    var multiplyBy = function(a) {
+      return function(b) {
+        return multiply(a, b); 
       }
+    };
 
-      //  Create a 'multiply by' function, which curries the above
-      //  to generate a function which multiplies by a constant. This
-      //  will involve closures. 
-      var multiplyBy = function(a) {
-        return function(b) {
-          return multiply(a, b); 
-        }
-      };
+    //  Add some data to our heap data object.
+    heapData.fry = "Philip J. Fry";
+    heapData.zoidberb = "John " + "Zoidberg";
+    heapData.character = {
+      firstName: "Amy",
+      secondName: "Wong"
+    };
+    heapData.double = multiplyBy(2);
+    heapData.multiplyBy100 = multiplyBy(100);
+    heapData.doubledNumber = heapData.double(18);
+    heapData.multipliedNumber = heapData.multiplyBy100(15);
+    heapData.div = document.createElement("div");
 
-      //  Add some data to our heap data object.
-      heapData.fry = "Philip J. Fry";
-      heapData.zoidberb = "John " + "Zoidberg";
-      heapData.character = {
-        firstName: "Amy",
-        secondName: "Wong"
-      };
-      heapData.double = multiplyBy(2);
-      heapData.multiplyBy100 = multiplyBy(100);
-      heapData.doubledNumber = heapData.double(18);
-      heapData.multipliedNumber = heapData.multiplyBy100(15);
-      heapData.div = document.createElement("div");
+    //  Put the heap data on the window, it is now pinned to a GC root.
+    window.heapData = heapData;
 
-      //  Put the heap data on the window, it is now pinned to a GC root.
-      window.heapData = heapData;
+        messageBox("Scenario 3", "Done.");
 
-      messageBox("Scenario 3", "Done.");
-
-    });
-
-  };
-
-  scenariosService.scenario4 = function() {
-
-    messageBox("Scenario 4", "Moves between the home and India album page times. Start Recording then press OK.")
-      .then(function() {
-        return transition(['/', '/album/1'], 10, 500);
       })
-      .then(function() {
-        return messageBox("Scenario 4", "Stop Recording.");
-      })
-      .then(function() {
-        //  done.
-      });
-  };
+
+  }
 
   return scenariosService;
 
