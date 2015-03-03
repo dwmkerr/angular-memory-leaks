@@ -4,6 +4,8 @@ A small and leaky AngularJS application used to demonstrate how to identify, ana
 
 This is a companion to the article [Fixing Memory Leaks in AngularJS and other JavaScript Applications](http://www.dwmkerr.com/fixing-memory-leaks-in-angularjs-applications/).
 
+![Memory Usage](https://raw.githubusercontent.com/dwmkerr/angular-memory-leaks/master/article/MemoryUsage.png)
+
 ## Using the Code
 
 Clone, install and gulp!
