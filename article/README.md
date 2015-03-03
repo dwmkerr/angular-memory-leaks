@@ -17,6 +17,9 @@ I'm using an AngularJS application to demonstrate the concepts and approaches, b
    * Three golden rules
    * Anti-patterns to avoid
 5. [The Future](#thefuture)
+   * Weak Maps
+   * AngularJS 2
+   * Even Better Browsers
 6. [Appendices](#appendices)
    * Thanks
    * Mysteries
@@ -32,7 +35,7 @@ If not let's start with some theory.
 
 A memory leak, at least in the world of unmanaged applications, is what occurs when you allocate memory and forget to free it. In pseudo-code<sup><a href="#fn1" id="ref1">1</a></sup>:
 
-```c
+```
 void leaky()
 {
     void* memory;
@@ -90,6 +93,17 @@ I've created a sample app for showing photo albums which is leaky in parts. The 
 [dwmkerr.github.io/angular-memory-leaks](http://dwmkerr.github.io/angular-memory-leaks/)
 
 It's a very basic app with a fairly common set of components; Bootstrap, jQuery and AngularJS. We're going to take a look at how we can identify whether this app suffers from memory leaks.
+
+You can run the app in your browser, or run it locally with the commands:
+
+```
+git clone https://github.com/dwmkerr/angular-memory-leaks.git 
+cd angular-memory-leaks
+npm install && bower install
+gulp
+```
+
+Running gulp will serve the app, lint, and reload the browser when you change the code. The project page is at [github.com/dwmkerr/angular-memory-leaks](https://github.com/dwmkerr/angular-memory-leaks).
 
 ### Method 1: The Wrong Way
 
@@ -258,11 +272,7 @@ If we think we have a memory leak, we need to be able to look at the heap data a
 
 {<16>}![Heap Data](/content/images/2015/03/HeapData.png)
 
-Column-by-column, we have:
-
-**Constructor** todo this is not consistent with what we show next (i.e the list of colums)
-
-This is the type of object we have. Some of these objects we can see are JavaScript classes (constructed with a `new` call to a function), such as `Scope`. As well as our own classes, we have some special classes of data:
+Starting from the left we have the 'Constructor' column. This is the type of object we have. Some of these objects we can see are JavaScript classes (constructed with a `new` call to a function), such as `Scope`. As well as our own classes, we have some special classes of data:
 
 * (compiled code): Represents JavaScript code compiled by Chrome. Consider this internal - we have no control over it.
 * (array): Internally used array object. Again, internal.
@@ -272,9 +282,9 @@ This is the type of object we have. Some of these objects we can see are JavaScr
 * system / Context: The underlying data require to call a function, for example the actual data used by a closure.
 * system: Internally used data.
 
-There are also plenty of objects that are created by Chrome, such as `HTMLDivElement`, which is a wrapper around the internally used DOM object.
+There are also plenty of objects that are created by Chrome, such as `HTMLDivElement`, which is a wrapper around the internally used (native) DOM object.
 
-Let's dissect some of these objects in detail. Running scenario 3 allocates some data and puts it on the `window` object. This is really trivial data but shows a lot. You can use the Heap Allocations or Heap Snapshots to see the data. I've taken three snapshots (once when before pressing OK, once after the data is allocated, and the final one when the last modal is closed):
+Let's dissect some of these objects in detail. Running **Scenario 3** allocates some data and puts it on the `window` object. This is really trivial data but shows a lot. You can use the Heap Allocations View or Heap Snapshots to see the data. I've taken three snapshots (once before pressing OK, once after the data is allocated, and the final one when the last modal is closed):
 
 {<17>}![Heap Data Analysis Part 1](/content/images/2015/03/HeapDataAnalysis2.png)
 
@@ -330,9 +340,9 @@ So we can see the `HeapData` constructor, expanding it we see an *instance* of `
 1. **Distance**. How far the instance is from a GC Root. A GC root is anything that can 'pin' objects, for example the `window` object which holds globals. If put something on `window` it will never be freed, this is what makes it a GC root. Our distance is 2 as we have `HeapData` (constructor) to `heapData` (instance) to `window`.
 2. **Objects count**. Only valid for the top level nodes, this shows us how many objects of the specified type we have. We have 1 `HeapData` object.
 3. **Shallow Size**. The size of the data that is directly allocated for the object. Compare this to *Retained Size*.
-4. **Retained Size**. The size of data this object is retaining. For example, out `heapData` instance holds a reference to an object which contains two fields `firstName` and `secondName`. Our shallow size includes enough data for the refernce, the retained size includes the full retained size of the retained object.
+4. **Retained Size**. The size of data this object is retaining. For example, out `heapData` instance holds a reference to an object which contains two fields `firstName` and `secondName`. Our shallow size includes enough data for the reference, the retained size includes the full retained size of the retained object.
 
-Notice that our instance of `HeapData` is highlighted in yellow? That's a convenience from Chrome, it's showing us objects which are directly accessible from JavaScript. Our object can be accessed via `window.heapData`, therefore it's directly accessible. Other objects we've created might not be.
+Notice that our instance of `HeapData` is highlighted in yellow? That's a convenience from Chrome, it's showing us objects which are **directly accessible** from JavaScript. Our object can be accessed via `window.heapData`, therefore it's directly accessible. Other objects we've created might not be (for example, a variable used in a closure exists and is on the heap, but not directly accessible).
 
 Let's see some other data we allocated:
 
@@ -340,9 +350,9 @@ Let's see some other data we allocated:
 
 Now we're looking at closures. We have two closures in yellow next to each other, clicking on one shows the retainer graph. What is going on here?
 
-1. Our closure is not a simple thing. It has code (of course), which takes up memory. We won't look into this in detail. It has shared function data (again, internally used and not worth looking into). We also have a reference to a `__proto__` (a function object has a prototype!). Finally, we have the context, which contains enough data to call the object. If we look in to the context we will not see much, as our function contains numbers which Chrome can simply store in the code. However, if we use references in closures we'll actually see them in the context.
+1. Our closure is not a simple thing. It has code (of course), which takes up memory. We won't look into this in detail. It has shared function data (again, internally used and not worth looking into). We also have a reference to a `__proto__` (a function object has a prototype!). Finally, we have the context, which contains enough data to call the function. If we look in to the context we will not see much, as our function contains numbers which Chrome can simply store in the code. However, if we use references in closures we'll actually see them in the context.
 2. We also have the retainers. Our closure is referenced via a variable called `multiplyBy100`, which itself is referenced by `heapData`, which if referenced by the `window` GC root.
-3. The `multiplyBy100` varialbe is *also* dominated by the second element of an array with id `@227339`.
+3. The `multiplyBy100` variable is *also* dominated by the second element of an array with id `@227339`.
 
 The last thing we'll look at in this snapshot is the div element.
 
@@ -350,7 +360,7 @@ The last thing we'll look at in this snapshot is the div element.
 
 We can see the div element is retained by the `div` variable in the `heapData` object. We can also see it is made up of a prototype and some native object. The native object shows no size - don't be fooled. That just means its taking up no JavaScript heap memory. It is still using memory (just in V8 engine not the JavaScript code).
 
-What's important to note here is that the element is shown in red. This means it's detached. So it exists, is referenced and cannot be garbage collected but is not in the DOM. This is not necessarily a problem, but lots of detached DOM elements is often a bad sign, especially if the number is increasing.
+What's important to note here is that the element is shown in red. This means it's **detached**. So it exists, is referenced (and therefore cannot be garbage collected) but is not in the DOM. This is not necessarily a problem, but lots of detached DOM elements is often a bad sign, especially if the number is increasing.
 
 The rest of the data you can look through yourself. You'll notice some interesting things, such as how concatenated strings work, but the important stuff we've now seen.
 
@@ -358,15 +368,15 @@ Let's move on to analyising the first potential memory leak we discovered - the 
 
 ### Analysing the leak in Scenario 2
 
-We saw that scenario 2, switching to and from the 'top rated' view seemed to leak memory. Let's use the heap snapshot comparison view to analyse this further. The steps are:
+We saw that **Scenario 2** (switching to and from the 'top rated' view) seemed to leak memory. Let's use the heap snapshot comparison view to analyse this further. The steps are:
 
-1. Navigate to the home.
+1. Navigate to the home page.
 2. Navigate to the top rated page (setting up the cache).
 3. Navigate to the home page, take a snapshot.
 4. Navigate to the top rated page, take a snapshot.
 5. Navigate to the home page, take a snapshot.
 
-We can now look at the memory allocated between 1 and 2 that is present in 3:
+We can now look at the memory allocated between 1 and 2 which is present in 3 (i.e. what we allocated for the top rated view and potentially leaked):
 
 {<21>}![Scenario 2 Snapshot 1](/content/images/2015/03/Scenario2Snapshot1.png)
 
@@ -375,7 +385,7 @@ Some things jump out immediately:
 1. We have gone from 7.5 to 8.4 to 8.5 MB. We are changing from one view to another - and ending in the same place that we started. We **should** be going back to 7.5 MB.
 2. We've got a lot of objects still hanging around, not just system data like compiled code, but HTML elements, detached DOM elements, `Promise` objects, `n.fn.init` objects and so on.
 
-This looks like a classic leak situation. Let's start by finding the object with the largest retained size which we can make some sense of, there are some `Scope` objects near the top of the chart, let's look at those.
+This looks like a classic leak situation. Let's start by looking at some objects we recognise. There are some `Scope` objects near the top of the chart, let's look at those.
 
 {<22>}![Scenario 2 Part 2](/content/images/2015/03/Scenario1Part2.png)
 
@@ -426,7 +436,7 @@ It looks like we're probably leaking the whole of the top rated view. We're prob
 
 > You can find objects you think are leaking by tagging them with classes!
 
-This is a neat trick. Let's add a couple of lines to our controller:
+This is a neat trick. Let's add a couple of lines to our top rated controller:
 
 ```javascript
 angular.module('app')
@@ -455,7 +465,7 @@ Let's look at this scope in more detail. Right click on it and choose 'Review in
 1. We can now see the root scope for the actual view.
 2. We can see the usual pattern of `$$ChildScope` and `$parent` properties, but what else have we got?
 
-Intestinglt we can see that our scope is also retained by a **context variale called $scope**. This is interesting. How do I know it is a context varible? It's in blue, part of the colour coding (see Mystery 3). 
+Intestingly we can see that our scope is also retained by a **context variable called $scope**. How do I know it is a context variable? It's in blue, part of the colour coding (see Mystery 3). 
 
 What is a context variable?
 
@@ -484,19 +494,19 @@ Let's talk about this a bit more.
 
 ### Dealing with Object Graphs
 
-We saw before that a chain of retainers can pin an object, such as a scope to a GC root. We also saw that AngularJS scopes are part of a highly connected graph, meaning that if we leak part of it, we probably leak it all:
+We saw before that a chain of retainers can pin an object, such as a scope, to a GC root. We also saw that AngularJS scopes are part of a highly connected graph, meaning that if we leak part of it, we probably leak it all:
 
 {<29>}![Scope Leak Graph 1](/content/images/2015/03/ScopeLeakGraph1-1.png)
 
 However, things can get worse. Remember how in an angular app you can get the scope for an element with `$(selector).scope()`? This connection between a scope an an element is maintained in the jQuery data cache. This lets us associate arbitrary data with an element. This introduces another layer of connectivity:
 
-{<30>}![TODO](/content/images/2015/03/ScopeLeakGraph2.png)
+{<30>}![Scope Leak Graph 2](/content/images/2015/03/ScopeLeakGraph2.png)
 
 In this graph, we see the jQuery data cache entries (in grey) associating DOM elements to scopes, introducing more connectivity.
 
-We can see here an alarming increase in the side and potential complexity of the graph. We've got DOM elements in play now. The chances are that if you are reading this you are dealing with a memory leak in your app, if it's noticable enough for you to deal with it, you probably have a non-trivial graph.
+We can see here an alarming increase in the size and potential complexity of the graph. We've got DOM elements in play now. The chances are that if you are reading this you are dealing with a memory leak in your app, if it's noticable enough for you to deal with it, you probably have a non-trivial graph.
 
-So how do we fix memory leaks? I'll show three general statements and how to use each one.
+So how do we fix memory leaks? I'll show three general approaches and how to use each one.
 
 ## Fixing Memory Leaks
 
@@ -506,7 +516,7 @@ Let's generalise the best practices first into three rules, see patterns we shou
 
 ### Three Golden Rules
 
-> Rule 1: Understand lifecycle
+> Rule 1: Understand the framework and lifecycle.
 
 If you are using a framework like AngularJS, you **must** understand the lifecycle of the objects you are dealing with. Unless you understand how the framework tries to clean up, you may make mistakes that stop it from working.
 
@@ -557,11 +567,11 @@ function(scope, element, attrs) {
 }
 ```
 
-*Note:*: Angular *should* handle this. It is supposed to deregister event handlers on elements it manages. In my experience this isn't always the case, although it seems cases when this doesn't happen are fewer and fewer as bugs get fixed in the framework. Anyway, Rule 3 - disconnect.
+*Note:* Angular *should* handle this. It is supposed to deregister event handlers on elements it manages. In my experience this isn't always the case, although it seems cases when this doesn't happen are fewer and fewer as bugs get fixed in the framework. Anyway, Rule 3 - disconnect.
 
 #### Poorly Managed Watchers
 
-Basically the same as above.
+Watchers or angular event handlers, basically the same as above.
 
 ```javascript
 $scope.$on('someEvent', function() {
@@ -586,10 +596,10 @@ Rule 1 - know the framework and how lifecycle is handled. `$destroy` is sent to 
 
 #### Callback Functions on Services
 
-Services, or other long lived objects, should typically not take callback functions. Imagine a 'notification service', allowing a scope to discover if the user has changed their name:
+Services (or other long lived objects) should typically not take callback functions. Imagine a 'user service', allowing a scope to discover if the user has changed their name:
 
 ```javascript
-NotificationService.onNameChange(function(newName) {
+UserService.onNameChange(function(newName) {
   $scope.userName = newName;
 });
 ```
@@ -601,7 +611,8 @@ There are two fixes I would suggest.
 **Fix 1: For a one-off operation, use a promise**
 
 ```javascript
-NotificationService.changeName().then(function(newName) {
+// change and name and wait for the result
+UserService.changeName("Fry").then(function(newName) {
   $scope.name = newName;
 });
 ```
@@ -611,6 +622,7 @@ The notification service returns a promise (a short lived object) when holds the
 **Fix 2: For notifications, use broadcasts**
 
 ```javascript
+// more like our original example
 $scope.$on('NotificationService:ChangeName', function(data) {
   $scope.name = data;
 });
@@ -626,7 +638,7 @@ That's a wrap. Hopefully this article will grow and improve with feedback from t
 
 Finally, in ECMAScript 6 we will get a WeakMap<sup><a href="#fn7" id="ref7">7</a></sup> object. This is *ideal* for something like the jQuery data cache. A weak map uses weak references (not natively supported in JavaScript). This means that we can map a DOM element to a scope in a weak map, but the map entry doesn't retain the element or scope. If the element or scope is cleaned up, the map entry is removed. This means internal structures to aid with frameworks don't need to necessarily retain object graphs.
 
-### AngularJS 2.0
+### AngularJS 2
 
 Simplifications to the framework in 2.0 and usage of native features like web components mean less complex framework code and less scope for issues. Consider even the usage of classes in Angular 2.0. We don't decorate a scope object (of type `Object`) we create an instance of a class. Easier to see in the heap view.
 
