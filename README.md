@@ -1,5 +1,7 @@
 # angular-memory-leaks
 
+[![Greenkeeper badge](https://badges.greenkeeper.io/dwmkerr/angular-memory-leaks.svg)](https://greenkeeper.io/)
+
 A small and leaky AngularJS application used to demonstrate how to identify, analyse and resolve memory leaks in JavaScript applications.
 
 This is a companion to the article [Fixing Memory Leaks in AngularJS and other JavaScript Applications](http://www.dwmkerr.com/fixing-memory-leaks-in-angularjs-applications/).
